@@ -158,37 +158,29 @@ export default function App() {
     }
   };
 
-  const triggerExport = async () => {
+  const triggerExport = () => {
     if (!extractedHtml) return;
     
     setIsExporting(true);
     setError(null);
     
     try {
-      const response = await fetch('/api/export-docx', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ html: extractedHtml }),
-      });
+      const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export HTML To Doc</title></head><body>";
+      const footer = "</body></html>";
+      const htmlContent = header + extractedHtml + footer;
       
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to export document');
-      }
-      
-      const blob = await response.blob();
+      const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = file ? file.name.replace('.pdf', '_extracted.docx') : 'extracted_document.docx';
+      a.download = file ? file.name.replace('.pdf', '_extracted.doc') : 'extracted_document.doc';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err: any) {
-      setError(err.message);
+      console.error(err);
+      setError(err.message || 'Failed to export document locally.');
     } finally {
       setIsExporting(false);
     }
@@ -383,7 +375,7 @@ export default function App() {
                    {isExporting ? (
                      <><Loader2 className="w-4 h-4 animate-spin" /> <span>Exporting...</span></>
                    ) : (
-                     <><Download className="w-4 h-4" /> <span>Download .docx</span></>
+                     <><Download className="w-4 h-4" /> <span>Download .doc</span></>
                    )}
                  </button>
                </div>
