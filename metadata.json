@@ -1,0 +1,6 @@
+{
+  "name": "Purva Vedic Text Extractor",
+  "description": "An application to extract text from scanned PDFs of Sanskrit and Telugu languages and export them to an editable DOCX format.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
