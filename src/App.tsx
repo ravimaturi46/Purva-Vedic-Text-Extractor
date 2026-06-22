@@ -9,9 +9,17 @@ import Tesseract from 'tesseract.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
+const AVAILABLE_LANGUAGES = [
+  { code: 'san', label: 'Sanskrit' },
+  { code: 'hin', label: 'Hindi' },
+  { code: 'eng', label: 'English' },
+  { code: 'tel', label: 'Telugu' }
+];
+
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['tel']);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionStatus, setExtractionStatus] = useState<string>('');
   const [extractedHtml, setExtractedHtml] = useState<string | null>(null);
@@ -20,6 +28,16 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+
+  const toggleLanguage = (code: string) => {
+    setSelectedLanguages(prev => {
+      if (prev.includes(code)) {
+        if (prev.length === 1) return prev; // prevent empty selection
+        return prev.filter(c => c !== code);
+      }
+      return [...prev, code];
+    });
+  };
 
   // Keep editor content synced with state
   const handleEditorInput = () => {
@@ -75,8 +93,11 @@ export default function App() {
       
       let combinedHtml = '';
 
-      setExtractionStatus('Loading Telugu language model...');
-      const worker = await Tesseract.createWorker('tel', 1, {
+      const langString = selectedLanguages.join('+');
+      const langNames = selectedLanguages.map(c => AVAILABLE_LANGUAGES.find(l => l.code === c)?.label).join(' & ');
+      
+      setExtractionStatus(`Loading ${langNames} language model...`);
+      const worker = await Tesseract.createWorker(langString, 1, {
         logger: m => {
           // You can log m.status here if you want super fine-grained UI updates
         }
@@ -165,7 +186,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-lg font-bold leading-none text-slate-800 uppercase tracking-wider">Purva Vedic Text Extractor</h1>
-            <p className="text-xs text-slate-500 font-medium mt-1">Telugu OCR</p>
+            <p className="text-xs text-slate-500 font-medium mt-1">Multi-Language OCR</p>
           </div>
         </div>
         <div className="flex items-center space-x-6">
@@ -179,18 +200,42 @@ export default function App() {
         
         {/* LEFT PANE: PDF Uploader / Viewer */}
         <aside className="xl:w-[420px] 2xl:w-[480px] flex-shrink-0 border-r border-slate-200 bg-white flex flex-col p-6 overflow-y-auto z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
-          <div className="mb-6 flex justify-between items-center">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <FileText className="w-4 h-4 text-slate-400" /> Active Document
-            </h2>
-            {file && !isExtracting && (
-              <button 
-                onClick={() => setFile(null)}
-                className="text-[10px] font-bold text-red-500 uppercase tracking-widest hover:text-red-700 transition"
-              >
-                Clear
-              </button>
-            )}
+          <div className="mb-6 flex flex-col gap-5">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <FileText className="w-4 h-4 text-slate-400" /> Active Document
+              </h2>
+              {file && !isExtracting && (
+                <button 
+                  onClick={() => setFile(null)}
+                  className="text-[10px] font-bold text-red-500 uppercase tracking-widest hover:text-red-700 transition"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          
+            <div className="flex flex-col gap-2">
+               <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                 Languages to Extract
+               </h3>
+               <div className="flex flex-wrap gap-2">
+                 {AVAILABLE_LANGUAGES.map(lang => (
+                   <button
+                     key={lang.code}
+                     onClick={() => toggleLanguage(lang.code)}
+                     className={cn(
+                       "px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors border",
+                       selectedLanguages.includes(lang.code) 
+                         ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm"
+                         : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                     )}
+                   >
+                     {lang.label}
+                   </button>
+                 ))}
+               </div>
+            </div>
           </div>
           
           <div className="flex-1 flex flex-col overflow-hidden min-h-[400px]">
