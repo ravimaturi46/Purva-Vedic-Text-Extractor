@@ -99,28 +99,45 @@ export default function App() {
       setExtractionStatus(`Loading ${langNames} language model...`);
       const worker = await Tesseract.createWorker(langString, 1, {
         logger: m => {
-          // You can log m.status here if you want super fine-grained UI updates
+          if (m.status === 'recognizing text') {
+             setExtractionStatus(`OCR Processing Page ( ${Math.round(m.progress * 100)}% )...`);
+          } else if (m.status.includes('downloading')) {
+             setExtractionStatus(`Downloading language models (${Math.round(m.progress * 100)}%)...`);
+          } else {
+             setExtractionStatus(`Tesseract: ${m.status}...`);
+          }
         }
       });
 
       for (let i = 1; i <= numPages; i++) {
         setExtractionStatus(`Rendering Page ${i} of ${numPages}...`);
         const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 2.0 }); // High scale for clear text
+        const viewport = page.getViewport({ scale: 2.5 }); // High scale for clear text from photos
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         const ctx = canvas.getContext('2d');
         
         if (ctx) {
+          // Fill canvas with white background before rendering PDF
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
           // @ts-ignore
-          await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+          await page.render({ canvasContext: ctx, viewport }).promise;
           
           setExtractionStatus(`OCR Processing Page ${i} of ${numPages}...`);
-          const { data: { text } } = await worker.recognize(canvas);
+          // Converting to JPEG data URL handles issues where Tesseract doesn't correctly read offline canvases
+          const imageData = canvas.toDataURL('image/jpeg', 1.0);
+          const { data: { text } } = await worker.recognize(imageData);
           
-          // Re-format into paragraphs to maintain loose layout
-          const formattedText = text.split('\n\n').map(p => `<p style="margin-bottom: 1em;">${p.replace(/\n/g, '<br/>')}</p>`).join('');
+          let formattedText = '';
+          if (!text || text.trim() === '') {
+            formattedText = `<p style="margin-bottom: 1em; color: #94a3b8; font-style: italic; font-size: 0.875rem;">[No text detected on this page.]</p>`;
+          } else {
+            // Re-format into paragraphs to maintain loose layout
+            formattedText = text.split('\n\n').map(p => `<p style="margin-bottom: 1em;">${p.replace(/\n/g, '<br/>')}</p>`).join('');
+          }
           
           combinedHtml += `<div style="padding-bottom: 1.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid #e2e8f0;">
             <h4 style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.1em; font-family: sans-serif;">Page ${i}</h4>
