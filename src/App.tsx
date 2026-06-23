@@ -49,8 +49,8 @@ export default function App() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      if (selectedFile.type !== 'application/pdf') {
-        setError('Please upload a valid PDF file.');
+      if (selectedFile.type !== 'application/pdf' && !selectedFile.type.startsWith('image/')) {
+        setError('Please upload a valid PDF or Image file.');
         return;
       }
       setFile(selectedFile);
@@ -68,8 +68,8 @@ export default function App() {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files?.[0];
     if (droppedFile) {
-      if (droppedFile.type !== 'application/pdf') {
-        setError('Please upload a valid PDF file.');
+      if (droppedFile.type !== 'application/pdf' && !droppedFile.type.startsWith('image/')) {
+        setError('Please upload a valid PDF or Image file.');
         return;
       }
       setFile(droppedFile);
@@ -87,10 +87,6 @@ export default function App() {
     setExtractionStatus('Initializing Local OCR (0% cost)...');
     
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      const numPages = pdf.numPages;
-      
       let combinedHtml = '';
 
       const langString = selectedLanguages.join('+');
@@ -100,7 +96,7 @@ export default function App() {
       const worker = await Tesseract.createWorker(langString, 1, {
         logger: m => {
           if (m.status === 'recognizing text') {
-             setExtractionStatus(`OCR Processing Page ( ${Math.round(m.progress * 100)}% )...`);
+             setExtractionStatus(`OCR Processing ( ${Math.round(m.progress * 100)}% )...`);
           } else if (m.status.includes('downloading')) {
              setExtractionStatus(`Downloading language models (${Math.round(m.progress * 100)}%)...`);
           } else {
@@ -109,40 +105,66 @@ export default function App() {
         }
       });
 
-      for (let i = 1; i <= numPages; i++) {
-        setExtractionStatus(`Rendering Page ${i} of ${numPages}...`);
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 2.5 }); // High scale for clear text from photos
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d');
-        
-        if (ctx) {
-          // Fill canvas with white background before rendering PDF
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (file.type.startsWith('image/')) {
+         setExtractionStatus(`Rendering Image for OCR...`);
+         const fileUrlForOcr = URL.createObjectURL(file);
+         
+         const { data: { text } } = await worker.recognize(fileUrlForOcr);
+         
+         let formattedText = '';
+         if (!text || text.trim() === '') {
+           formattedText = `<p style="margin-bottom: 1em; color: #94a3b8; font-style: italic; font-size: 0.875rem;">[No text detected on this image.]</p>`;
+         } else {
+           // Re-format into paragraphs to maintain loose layout
+           formattedText = text.split('\n\n').map(p => `<p style="margin-bottom: 1em;">${p.replace(/\n/g, '<br/>')}</p>`).join('');
+         }
+         
+         combinedHtml += `<div style="padding-bottom: 1.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid #e2e8f0;">
+           <h4 style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.1em; font-family: sans-serif;">Extracted Image</h4>
+           ${formattedText}
+         </div>`;
+         
+         URL.revokeObjectURL(fileUrlForOcr);
+      } else {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const numPages = pdf.numPages;
 
-          // @ts-ignore
-          await page.render({ canvasContext: ctx, viewport }).promise;
+        for (let i = 1; i <= numPages; i++) {
+          setExtractionStatus(`Rendering Page ${i} of ${numPages}...`);
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 2.5 }); // High scale for clear text from photos
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
           
-          setExtractionStatus(`OCR Processing Page ${i} of ${numPages}...`);
-          // Converting to JPEG data URL handles issues where Tesseract doesn't correctly read offline canvases
-          const imageData = canvas.toDataURL('image/jpeg', 1.0);
-          const { data: { text } } = await worker.recognize(imageData);
-          
-          let formattedText = '';
-          if (!text || text.trim() === '') {
-            formattedText = `<p style="margin-bottom: 1em; color: #94a3b8; font-style: italic; font-size: 0.875rem;">[No text detected on this page.]</p>`;
-          } else {
-            // Re-format into paragraphs to maintain loose layout
-            formattedText = text.split('\n\n').map(p => `<p style="margin-bottom: 1em;">${p.replace(/\n/g, '<br/>')}</p>`).join('');
+          if (ctx) {
+            // Fill canvas with white background before rendering PDF
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // @ts-ignore
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            
+            setExtractionStatus(`OCR Processing Page ${i} of ${numPages}...`);
+            // Converting to JPEG data URL handles issues where Tesseract doesn't correctly read offline canvases
+            const imageData = canvas.toDataURL('image/jpeg', 1.0);
+            const { data: { text } } = await worker.recognize(imageData);
+            
+            let formattedText = '';
+            if (!text || text.trim() === '') {
+              formattedText = `<p style="margin-bottom: 1em; color: #94a3b8; font-style: italic; font-size: 0.875rem;">[No text detected on this page.]</p>`;
+            } else {
+              // Re-format into paragraphs to maintain loose layout
+              formattedText = text.split('\n\n').map(p => `<p style="margin-bottom: 1em;">${p.replace(/\n/g, '<br/>')}</p>`).join('');
+            }
+            
+            combinedHtml += `<div style="padding-bottom: 1.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid #e2e8f0;">
+              <h4 style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.1em; font-family: sans-serif;">Page ${i}</h4>
+              ${formattedText}
+            </div>`;
           }
-          
-          combinedHtml += `<div style="padding-bottom: 1.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid #e2e8f0;">
-            <h4 style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.1em; font-family: sans-serif;">Page ${i}</h4>
-            ${formattedText}
-          </div>`;
         }
       }
       
@@ -208,8 +230,8 @@ export default function App() {
       <main className="flex-1 flex flex-col xl:flex-row overflow-hidden w-full max-w-full">
         
         {/* LEFT PANE: PDF Uploader / Viewer */}
-        <aside className="xl:w-[420px] 2xl:w-[480px] flex-shrink-0 border-r border-slate-200 bg-white flex flex-col p-6 overflow-y-auto z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
-          <div className="mb-6 flex flex-col gap-5">
+        <aside className="w-full xl:w-[420px] 2xl:w-[480px] flex-shrink-0 border-r border-slate-200 bg-white flex flex-col p-4 md:p-6 overflow-y-auto z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)] xl:h-full h-[50vh] min-h-[350px]">
+          <div className="mb-6 flex flex-col gap-4 md:gap-5">
             <div className="flex justify-between items-center">
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <FileText className="w-4 h-4 text-slate-400" /> Active Document
@@ -247,12 +269,12 @@ export default function App() {
             </div>
           </div>
           
-          <div className="flex-1 flex flex-col overflow-hidden min-h-[400px]">
+          <div className="flex-1 flex flex-col overflow-hidden min-h-[200px]">
             {!file ? (
               <div 
                 className={cn(
-                  "p-8 bg-slate-50 border-2 border-dashed border-indigo-200 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-colors flex-1",
-                  "hover:bg-indigo-50/50 group"
+                  "p-6 md:p-8 bg-slate-50 border-2 border-dashed border-indigo-200 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-colors flex-1",
+                  "hover:bg-indigo-50/50 group text-center"
                 )}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
@@ -262,32 +284,37 @@ export default function App() {
                   type="file" 
                   ref={fileInputRef} 
                   onChange={handleFileChange} 
-                  accept=".pdf,application/pdf" 
+                  accept="image/*,application/pdf" 
+                  capture="environment"
                   className="hidden" 
                 />
                 <div className="w-12 h-12 bg-white shadow-sm flex items-center justify-center rounded mb-4 text-indigo-400 group-hover:text-indigo-600 transition-colors">
                   <UploadCloud className="w-6 h-6" />
                 </div>
-                <p className="text-sm font-bold text-slate-700 mb-1">Upload Scanned PDF</p>
-                <p className="text-xs text-slate-400 mt-1 text-center max-w-[200px]">
-                  Drag & drop your file here, or click to browse
+                <p className="text-sm font-bold text-slate-700 mb-1">Upload PDF or Image</p>
+                <p className="text-xs text-slate-400 mt-1 max-w-[200px]">
+                  Take a photo, select an image, or upload a PDF document
                 </p>
               </div>
             ) : (
               <div className="flex-1 flex flex-col bg-slate-50 rounded-xl border border-slate-200 overflow-hidden relative shadow-inner">
                 {fileUrl && (
-                   <object
-                     data={fileUrl}
-                     type="application/pdf"
-                     className="w-full h-full absolute inset-0"
-                   >
-                     <div className="flex h-full items-center justify-center p-4 text-center">
-                        <p className="text-xs font-medium text-slate-500 flex flex-col gap-2 items-center">
-                          <span>Preview not available.</span>
-                          <span className="font-bold text-slate-700 break-all">{file.name}</span>
-                        </p>
-                     </div>
-                   </object>
+                   file.type.startsWith('image/') ? (
+                     <img src={fileUrl} alt="Preview" className="w-full h-full object-contain absolute inset-0" />
+                   ) : (
+                     <object
+                       data={fileUrl}
+                       type="application/pdf"
+                       className="w-full h-full absolute inset-0"
+                     >
+                       <div className="flex h-full items-center justify-center p-4 text-center">
+                          <p className="text-xs font-medium text-slate-500 flex flex-col gap-2 items-center">
+                            <span>Preview not available.</span>
+                            <span className="font-bold text-slate-700 break-all">{file.name}</span>
+                          </p>
+                       </div>
+                     </object>
+                   )
                 )}
               </div>
             )}
