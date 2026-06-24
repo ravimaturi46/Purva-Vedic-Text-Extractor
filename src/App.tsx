@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UploadCloud, FileText, ArrowRight, Download, Loader2, FileType2, Search, Zap } from 'lucide-react';
+import { UploadCloud, FileText, ArrowRight, Download, Loader2, FileType2, Search, Zap, Copy, Check } from 'lucide-react';
 import { cn } from './lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -24,6 +24,7 @@ export default function App() {
   const [extractionStatus, setExtractionStatus] = useState<string>('');
   const [extractedHtml, setExtractedHtml] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -208,6 +209,18 @@ export default function App() {
     }
   };
 
+  const copyToClipboard = async () => {
+    if (!editorRef.current) return;
+    try {
+      await navigator.clipboard.writeText(editorRef.current.innerText);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+      setError('Failed to copy to clipboard.');
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-full bg-slate-50 font-sans text-slate-900 overflow-hidden">
       <header className="flex items-center justify-between px-8 py-4 border-b border-slate-200 bg-white shadow-sm z-20 relative">
@@ -221,9 +234,17 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center space-x-6">
-          <div className="flex text-xs font-bold text-slate-400 uppercase tracking-widest gap-1.5 items-center">
+          <div className="flex text-xs font-bold text-slate-400 uppercase tracking-widest gap-1.5 items-center hidden md:flex">
             <Search className="w-4 h-4" /> Layout Preserving Engine
           </div>
+          <a 
+            href="https://www.purvavedic.com" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-sm font-bold text-indigo-600 hover:text-indigo-700 transition-colors flex items-center gap-1 bg-indigo-50 px-3 py-1.5 rounded-full"
+          >
+            Purva Vedic Consultancy
+          </a>
         </div>
       </header>
 
@@ -387,9 +408,21 @@ export default function App() {
               )}
             </div>
 
-            {/* Floating Download Button positioned bottom right of the preview wrapper */}
+            {/* Floating Buttons positioned bottom right of the preview wrapper */}
             {extractedHtml && (
-               <div className="absolute bottom-8 right-8 z-20">
+               <div className="absolute bottom-8 right-8 z-20 flex gap-3">
+                 <button
+                   onClick={copyToClipboard}
+                   className={cn(
+                     "flex items-center justify-center w-12 h-12 rounded-full shadow-xl transition-all",
+                     isCopied 
+                       ? "bg-emerald-500 text-white" 
+                       : "bg-white text-slate-600 hover:bg-slate-50 hover:scale-105 hover:shadow-2xl hover:text-indigo-600"
+                   )}
+                   title="Copy to clipboard"
+                 >
+                   {isCopied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                 </button>
                  <button
                    onClick={triggerExport}
                    disabled={isExporting}
