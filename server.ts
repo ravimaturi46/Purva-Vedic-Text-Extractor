@@ -80,7 +80,7 @@ async function startServer() {
         text: promptString,
       };
 
-      const response = await ai.models.generateContent({
+      const responseStream = await ai.models.generateContentStream({
         model: "gemini-3.1-pro-preview",
         contents: { parts: [documentPart, textPart] },
         config: {
@@ -88,10 +88,23 @@ async function startServer() {
         }
       });
 
-      res.json({ text: response.text });
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Transfer-Encoding', 'chunked');
+
+      for await (const chunk of responseStream) {
+        if (chunk.text) {
+          res.write(chunk.text);
+        }
+      }
+      res.end();
     } catch (error: any) {
       console.error('Gemini extraction error:', error);
-      res.status(500).json({ error: error.message || 'Error extracting text with Gemini' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message || 'Error extracting text with Gemini' });
+      } else {
+        res.write(`\n\n[ERROR: ${error.message}]`);
+        res.end();
+      }
     }
   });
 

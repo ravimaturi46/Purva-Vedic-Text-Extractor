@@ -100,6 +100,7 @@ export default function App() {
     if (!file) return;
     
     setIsExtracting(true);
+    setExtractedHtml('');
     setError(null);
     setExtractionStatus('Initializing Local OCR (0% cost)...');
     
@@ -206,6 +207,7 @@ export default function App() {
     }
     
     setIsExtracting(true);
+    setExtractedHtml('');
     setError(null);
     setExtractionStatus('Initializing AI Engine (Server-side Gemini)...');
     
@@ -245,13 +247,37 @@ export default function App() {
         throw new Error(errorMsg);
       }
       
-      setExtractionStatus('Parsing AI response...');
-      const data = await response.json();
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        if (data.text) setExtractedHtml(data.text);
+        return;
+      }
       
-      if (data.text) {
-        setExtractedHtml(data.text);
-      } else {
-        throw new Error('No text returned from AI.');
+      setExtractionStatus('Receiving AI response stream...');
+      
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let fullText = '';
+      
+      while (reader && !done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+          
+          if (fullText.includes('[ERROR: ')) {
+            const errorMatch = fullText.match(/\[ERROR: (.*?)\]/);
+            if (errorMatch) {
+              throw new Error(errorMatch[1]);
+            }
+          }
+          
+          setExtractedHtml(fullText);
+        }
       }
       
     } catch (err: any) {
@@ -497,15 +523,17 @@ export default function App() {
             </div>
             
             <div className="flex-1 p-6 xl:p-10 relative overflow-hidden flex flex-col bg-[#F8FAFC]">
-              {isExtracting ? (
+              {isExtracting && !extractedHtml ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10">
                    <Loader2 className="w-8 h-8 animate-spin mb-6 text-indigo-500 drop-shadow-md" />
                    <p className="font-bold text-slate-700 tracking-wide">{extractionStatus || 'Running Extraction...'}</p>
                    {extractionMode === 'ai' && (
                      <div className="flex flex-col items-center mt-3 gap-1">
                        <span className="text-sm font-mono bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full">{elapsedTime}s elapsed</span>
-                       {elapsedTime > 5 && <p className="text-xs text-indigo-500 animate-pulse mt-1">Analyzing text, please wait...</p>}
-                       {elapsedTime > 15 && <p className="text-xs text-indigo-500 mt-1">Complex document detected, still processing...</p>}
+                       <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-1">Est. time: 10-30s</span>
+                       {elapsedTime > 5 && elapsedTime <= 15 && <p className="text-xs text-indigo-500 animate-pulse mt-1">Analyzing text, please wait...</p>}
+                       {elapsedTime > 15 && elapsedTime <= 30 && <p className="text-xs text-indigo-500 mt-1">Complex document detected, still processing...</p>}
+                       {elapsedTime > 30 && <p className="text-xs text-amber-500 animate-pulse mt-1">Taking longer than usual, please hold on...</p>}
                      </div>
                    )}
                    <p className="text-xs font-medium text-slate-500 mt-4 text-center max-w-[300px]">
@@ -513,10 +541,16 @@ export default function App() {
                    </p>
                 </div>
               ) : extractedHtml ? (
-                <div className="flex-1 overflow-y-auto shadow-sm rounded-xl">
+                <div className="flex-1 overflow-y-auto shadow-sm rounded-xl relative">
+                  {isExtracting && (
+                    <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm border border-indigo-100 shadow-sm px-3 py-1.5 rounded-full flex items-center gap-2 z-20">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                      <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Streaming AI Response...</span>
+                    </div>
+                  )}
                   <div 
                     className="prose prose-slate prose-sm md:prose-base mx-auto w-full max-w-[850px] focus:outline-none p-10 sm:p-14 bg-white border border-slate-200 min-h-full transition-colors font-serif text-slate-800"
-                    contentEditable
+                    contentEditable={!isExtracting}
                     ref={editorRef}
                     onInput={handleEditorInput}
                     dangerouslySetInnerHTML={{ __html: extractedHtml }}
