@@ -212,7 +212,7 @@ export default function App() {
     setExtractionStatus('Initializing AI Engine (Server-side Gemini)...');
     
     try {
-      setExtractionStatus('Reading file for AI upload...');
+      setExtractionStatus('Preparing document for AI upload...');
       
       const fileData = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -221,7 +221,7 @@ export default function App() {
         reader.readAsDataURL(file);
       });
 
-      setExtractionStatus('Sending to Gemini AI for processing...');
+      setExtractionStatus('Connecting to Gemini API & uploading document...');
       
       const response = await fetch('/api/extract-text-gemini', {
         method: 'POST',
@@ -255,7 +255,7 @@ export default function App() {
         return;
       }
       
-      setExtractionStatus('Receiving AI response stream...');
+      setExtractionStatus('AI Connected! Streaming extracted text...');
       
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -282,7 +282,22 @@ export default function App() {
       
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Failed to extract text using AI.');
+      let errorMessage = err.message || 'Failed to extract text using AI.';
+      
+      try {
+        const parsed = JSON.parse(errorMessage);
+        if (parsed.error && parsed.error.message) {
+          errorMessage = parsed.error.message;
+        }
+      } catch (e) {
+        // Not valid JSON, ignore
+      }
+
+      if (errorMessage.includes('429') || errorMessage.includes('Quota') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
+         errorMessage = "API Quota Exceeded: Your free tier API key limit has been reached. Please check your Google AI Studio billing details or try again later.";
+      }
+
+      setError(errorMessage);
     } finally {
       setIsExtracting(false);
       setExtractionStatus('');
@@ -545,7 +560,7 @@ export default function App() {
                   {isExtracting && (
                     <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm border border-indigo-100 shadow-sm px-3 py-1.5 rounded-full flex items-center gap-2 z-20">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
-                      <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Streaming AI Response...</span>
+                      <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">AI Connected • Streaming...</span>
                     </div>
                   )}
                   <div 

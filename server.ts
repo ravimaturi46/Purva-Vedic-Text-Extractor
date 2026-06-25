@@ -81,7 +81,7 @@ async function startServer() {
       };
 
       const responseStream = await ai.models.generateContentStream({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-2.5-flash",
         contents: { parts: [documentPart, textPart] },
         config: {
           systemInstruction: "You are an expert OCR and document digitization system. You precisely extract text, preserving formatting and layout using HTML tags. You handle difficult, historical, or non-OCR compatible scans (like Vedic Sanskrit or Telugu) accurately."
