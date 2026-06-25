@@ -370,7 +370,6 @@ export default function App() {
                   ref={fileInputRef} 
                   onChange={handleFileChange} 
                   accept="image/*,application/pdf" 
-                  capture="environment"
                   className="hidden" 
                 />
                 <div className="w-12 h-12 bg-white shadow-sm flex items-center justify-center rounded mb-4 text-indigo-400 group-hover:text-indigo-600 transition-colors">
