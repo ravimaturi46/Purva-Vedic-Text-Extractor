@@ -28,9 +28,23 @@ export default function App() {
   const [isCopied, setIsCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userApiKey, setUserApiKey] = useState<string>('');
+  const [elapsedTime, setElapsedTime] = useState(0);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isExtracting) {
+      setElapsedTime(0);
+      timer = setInterval(() => {
+        setElapsedTime(prev => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isExtracting]);
 
   const toggleLanguage = (code: string) => {
     setSelectedLanguages(prev => {
@@ -487,7 +501,14 @@ export default function App() {
                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10">
                    <Loader2 className="w-8 h-8 animate-spin mb-6 text-indigo-500 drop-shadow-md" />
                    <p className="font-bold text-slate-700 tracking-wide">{extractionStatus || 'Running Extraction...'}</p>
-                   <p className="text-xs font-medium text-slate-500 mt-2 text-center max-w-[300px]">
+                   {extractionMode === 'ai' && (
+                     <div className="flex flex-col items-center mt-3 gap-1">
+                       <span className="text-sm font-mono bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full">{elapsedTime}s elapsed</span>
+                       {elapsedTime > 5 && <p className="text-xs text-indigo-500 animate-pulse mt-1">Analyzing text, please wait...</p>}
+                       {elapsedTime > 15 && <p className="text-xs text-indigo-500 mt-1">Complex document detected, still processing...</p>}
+                     </div>
+                   )}
+                   <p className="text-xs font-medium text-slate-500 mt-4 text-center max-w-[300px]">
                      {extractionMode === 'local' ? 'Running 100% locally in your browser to save cost.' : 'Using server-side AI for enhanced accuracy on complex or handwritten documents.'}
                    </p>
                 </div>
