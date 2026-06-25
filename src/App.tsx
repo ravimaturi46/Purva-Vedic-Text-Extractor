@@ -23,9 +23,11 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionStatus, setExtractionStatus] = useState<string>('');
   const [extractedHtml, setExtractedHtml] = useState<string | null>(null);
+  const [extractionMode, setExtractionMode] = useState<'local' | 'ai'>('local');
   const [isExporting, setIsExporting] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userApiKey, setUserApiKey] = useState<string>('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -178,6 +180,68 @@ export default function App() {
     } finally {
       setIsExtracting(false);
       setExtractionStatus('');
+    }
+  };
+
+  const triggerAIExtract = async () => {
+    if (!file) return;
+    
+    setIsExtracting(true);
+    setError(null);
+    setExtractionStatus('Initializing AI Engine (Server-side Gemini)...');
+    
+    try {
+      setExtractionStatus('Reading file for AI upload...');
+      
+      const fileData = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      setExtractionStatus('Sending to Gemini AI for processing...');
+      
+      const response = await fetch('/api/extract-text-gemini', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          fileData, 
+          mimeType: file.type,
+          languages: selectedLanguages.map(c => AVAILABLE_LANGUAGES.find(l => l.code === c)?.label || c),
+          userApiKey: userApiKey.trim() || undefined
+        }),
+      });
+      
+      if (!response.ok) {
+        let errorMsg = 'Failed to extract text with AI';
+        try {
+          const data = await response.json();
+          errorMsg = data.error || errorMsg;
+        } catch (e) {
+          // Ignore
+        }
+        throw new Error(errorMsg);
+      }
+      
+      setExtractionStatus('Parsing AI response...');
+      const data = await response.json();
+      
+      if (data.text) {
+        setExtractedHtml(data.text);
+      } else {
+        throw new Error('No text returned from AI.');
+      }
+      
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to extract text using AI.');
+    } finally {
+      setIsExtracting(false);
+      setExtractionStatus('');
+      setUserApiKey(''); // Clear API key after use for security as requested
     }
   };
 
@@ -347,22 +411,52 @@ export default function App() {
             )}
           </div>
 
-          {file && (
-             <div className="mt-8 flex-shrink-0">
+           {file && (
+             <div className="mt-8 flex-shrink-0 flex flex-col gap-3">
                <button
-                 onClick={triggerExtract}
+                 onClick={() => { setExtractionMode('local'); triggerExtract(); }}
                  disabled={isExtracting}
                  className={cn(
-                   "w-full py-4 bg-slate-900 text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 flex items-center justify-center gap-2",
+                   "w-full py-3 bg-slate-900 text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-slate-800 transition-all shadow-lg flex items-center justify-center gap-2",
                    isExtracting && "opacity-75 cursor-not-allowed"
                  )}
                >
-                 {isExtracting ? (
+                 {isExtracting && extractionMode === 'local' ? (
                    <><Loader2 className="w-4 h-4 animate-spin" /> Processing OCR...</>
                  ) : (
-                   <><Zap className="w-4 h-4" /> Generate Export</>
+                   <><Zap className="w-4 h-4" /> Local OCR Extract</>
                  )}
                </button>
+               
+               <div className="flex flex-col gap-2 mt-2 pt-4 border-t border-slate-100">
+                 <input
+                   type="password"
+                   placeholder="Enter your Gemini API Key..."
+                   value={userApiKey}
+                   onChange={(e) => setUserApiKey(e.target.value)}
+                   className="w-full px-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 placeholder:text-slate-400"
+                 />
+                 <p className="text-[10px] text-slate-500 font-medium leading-relaxed px-1">
+                   Get your free API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-bold">Google AI Studio</a>. The key is never saved and is cleared upon extraction.
+                 </p>
+                 <button
+                   onClick={() => { setExtractionMode('ai'); triggerAIExtract(); }}
+                   disabled={isExtracting}
+                   className={cn(
+                     "w-full py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center gap-2 relative overflow-hidden group",
+                     isExtracting && "opacity-75 cursor-not-allowed"
+                   )}
+                 >
+                   <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-purple-600 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                   <span className="relative flex items-center gap-2">
+                     {isExtracting && extractionMode === 'ai' ? (
+                       <><Loader2 className="w-4 h-4 animate-spin" /> Processing AI...</>
+                     ) : (
+                       <><Search className="w-4 h-4" /> AI Enhanced Extract</>
+                     )}
+                   </span>
+                 </button>
+               </div>
              </div>
           )}
         </aside>
@@ -388,8 +482,10 @@ export default function App() {
               {isExtracting ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10">
                    <Loader2 className="w-8 h-8 animate-spin mb-6 text-indigo-500 drop-shadow-md" />
-                   <p className="font-bold text-slate-700 tracking-wide">{extractionStatus || 'Running OCR...'}</p>
-                   <p className="text-xs font-medium text-slate-500 mt-2 text-center max-w-[300px]">Running 100% locally in your browser to save cost.</p>
+                   <p className="font-bold text-slate-700 tracking-wide">{extractionStatus || 'Running Extraction...'}</p>
+                   <p className="text-xs font-medium text-slate-500 mt-2 text-center max-w-[300px]">
+                     {extractionMode === 'local' ? 'Running 100% locally in your browser to save cost.' : 'Using server-side AI for enhanced accuracy on complex or handwritten documents.'}
+                   </p>
                 </div>
               ) : extractedHtml ? (
                 <div className="flex-1 overflow-y-auto shadow-sm rounded-xl">
