@@ -186,6 +186,11 @@ export default function App() {
   const triggerAIExtract = async () => {
     if (!file) return;
     
+    if (!userApiKey || !userApiKey.trim()) {
+      setError('Please enter your Gemini API Key first.');
+      return;
+    }
+    
     setIsExtracting(true);
     setError(null);
     setExtractionStatus('Initializing AI Engine (Server-side Gemini)...');

@@ -44,7 +44,7 @@ async function startServer() {
         return;
       }
       
-      const apiKey = userApiKey || process.env.GEMINI_API_KEY;
+      const apiKey = userApiKey;
       
       if (!apiKey) {
          res.status(400).json({ error: 'No API key provided. Please provide a Gemini API key.' });
