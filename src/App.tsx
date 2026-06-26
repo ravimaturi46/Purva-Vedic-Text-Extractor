@@ -212,72 +212,112 @@ export default function App() {
     setExtractionStatus('Initializing AI Engine (Server-side Gemini)...');
     
     try {
-      setExtractionStatus('Preparing document for AI upload...');
-      
-      const fileData = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      setExtractionStatus('Connecting to Gemini API & uploading document...');
-      
-      const response = await fetch('/api/extract-text-gemini', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          fileData, 
-          mimeType: file.type,
-          languages: selectedLanguages.map(c => AVAILABLE_LANGUAGES.find(l => l.code === c)?.label || c),
-          userApiKey: userApiKey.trim() || undefined
-        }),
-      });
-      
-      if (!response.ok) {
-        let errorMsg = 'Failed to extract text with AI';
-        try {
+      const processSingleImageWithAI = async (fileDataStr: string, mime: string, onChunk: (text: string) => void): Promise<string> => {
+        const response = await fetch('/api/extract-text-gemini', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            fileData: fileDataStr, 
+            mimeType: mime,
+            languages: selectedLanguages.map(c => AVAILABLE_LANGUAGES.find(l => l.code === c)?.label || c),
+            userApiKey: userApiKey.trim() || undefined
+          }),
+        });
+        
+        if (!response.ok) {
+          let errorMsg = 'Failed to extract text with AI';
+          try {
+            const data = await response.json();
+            errorMsg = data.error || errorMsg;
+          } catch (e) {}
+          throw new Error(errorMsg);
+        }
+        
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
           const data = await response.json();
-          errorMsg = data.error || errorMsg;
-        } catch (e) {
-          // Ignore
-        }
-        throw new Error(errorMsg);
-      }
-      
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        if (data.error) throw new Error(data.error);
-        if (data.text) setExtractedHtml(data.text);
-        return;
-      }
-      
-      setExtractionStatus('AI Connected! Streaming extracted text...');
-      
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
-      let fullText = '';
-      
-      while (reader && !done) {
-        const { value, done: doneReading } = await reader.read();
-        done = doneReading;
-        if (value) {
-          const chunk = decoder.decode(value, { stream: true });
-          fullText += chunk;
-          
-          if (fullText.includes('[ERROR: ')) {
-            const errorMatch = fullText.match(/\[ERROR: (.*?)\]/);
-            if (errorMatch) {
-              throw new Error(errorMatch[1]);
-            }
+          if (data.error) throw new Error(data.error);
+          if (data.text) {
+             onChunk(data.text);
+             return data.text;
           }
-          
-          setExtractedHtml(fullText);
+          return '';
         }
+        
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let done = false;
+        let fullText = '';
+        
+        while (reader && !done) {
+          const { value, done: doneReading } = await reader.read();
+          done = doneReading;
+          if (value) {
+            const chunk = decoder.decode(value, { stream: true });
+            fullText += chunk;
+            
+            if (fullText.includes('[ERROR: ')) {
+              const errorMatch = fullText.match(/\[ERROR: (.*?)\]/);
+              if (errorMatch) {
+                throw new Error(errorMatch[1]);
+              }
+            }
+            
+            onChunk(fullText);
+          }
+        }
+        return fullText;
+      };
+
+      if (file.type === 'application/pdf') {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const numPages = pdf.numPages;
+        let combinedHtml = '';
+
+        for (let i = 1; i <= numPages; i++) {
+          setExtractionStatus(`Rendering Page ${i} of ${numPages} for AI...`);
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 1.5 }); // Lower scale for AI to reduce payload size
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          
+          if (ctx) {
+             const renderContext = { canvasContext: ctx, viewport: viewport };
+             await page.render(renderContext).promise;
+             const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+             
+             setExtractionStatus(`AI Connected! Streaming Page ${i} of ${numPages}...`);
+             
+             const pageHeader = `<div style="padding-bottom: 1.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid #e2e8f0;">
+              <h4 style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.1em; font-family: sans-serif;">Page ${i}</h4>`;
+             const pageFooter = `</div>`;
+
+             const finalPageHtml = await processSingleImageWithAI(imageDataUrl, 'image/jpeg', (chunk) => {
+               setExtractedHtml(combinedHtml + pageHeader + chunk + pageFooter);
+             });
+             
+             combinedHtml += pageHeader + finalPageHtml + pageFooter;
+             setExtractedHtml(combinedHtml);
+          }
+        }
+      } else {
+        setExtractionStatus('Preparing image for AI upload...');
+        const fileData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        setExtractionStatus('Connecting to Gemini API & uploading image...');
+        await processSingleImageWithAI(fileData, file.type, (chunk) => {
+          setExtractedHtml(chunk);
+        });
       }
       
     } catch (err: any) {
@@ -545,7 +585,7 @@ export default function App() {
                    {extractionMode === 'ai' && (
                      <div className="flex flex-col items-center mt-3 gap-1">
                        <span className="text-sm font-mono bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full">{elapsedTime}s elapsed</span>
-                       <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-1">Est. time: 10-30s</span>
+                       <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-1">Est. time: 10-30s per page</span>
                        {elapsedTime > 5 && elapsedTime <= 15 && <p className="text-xs text-indigo-500 animate-pulse mt-1">Analyzing text, please wait...</p>}
                        {elapsedTime > 15 && elapsedTime <= 30 && <p className="text-xs text-indigo-500 mt-1">Complex document detected, still processing...</p>}
                        {elapsedTime > 30 && <p className="text-xs text-amber-500 animate-pulse mt-1">Taking longer than usual, please hold on...</p>}
