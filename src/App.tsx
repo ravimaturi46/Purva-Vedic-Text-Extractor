@@ -212,7 +212,7 @@ export default function App() {
     setExtractionStatus('Initializing AI Engine (Server-side Gemini)...');
     
     try {
-      const processSingleImageWithAI = async (fileDataStr: string, mime: string, onChunk: (text: string) => void): Promise<string> => {
+      const processSingleImageWithAI = async (fileDataStr: string, mime: string, onChunk: (text: string) => void, retryCount = 0): Promise<string> => {
         const response = await fetch('/api/extract-text-gemini', {
           method: 'POST',
           headers: {
@@ -232,6 +232,26 @@ export default function App() {
             const data = await response.json();
             errorMsg = data.error || errorMsg;
           } catch (e) {}
+          
+          if ((errorMsg.includes('429') || errorMsg.includes('Quota') || errorMsg.includes('RESOURCE_EXHAUSTED')) && retryCount < 3) {
+             let retrySeconds = 30; // default
+             const retryMatch = errorMsg.match(/retry in ([\d\.]+)s/i);
+             if (retryMatch && retryMatch[1]) {
+                retrySeconds = Math.ceil(parseFloat(retryMatch[1])) + 2; // Add 2s buffer
+             } else if (errorMsg.includes('47s')) { // Fallback based on error msg
+                retrySeconds = 47;
+             } else {
+                retrySeconds = 60; // if we can't parse, wait 60 seconds
+             }
+             
+             for (let s = retrySeconds; s > 0; s--) {
+               setExtractionStatus(`API Rate limit hit. Retrying in ${s}s...`);
+               await new Promise(r => setTimeout(r, 1000));
+             }
+             setExtractionStatus('Retrying AI request...');
+             return processSingleImageWithAI(fileDataStr, mime, onChunk, retryCount + 1);
+          }
+          
           throw new Error(errorMsg);
         }
         
@@ -280,7 +300,7 @@ export default function App() {
         for (let i = 1; i <= numPages; i++) {
           setExtractionStatus(`Rendering Page ${i} of ${numPages} for AI...`);
           const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 1.5 }); // Lower scale for AI to reduce payload size
+          const viewport = page.getViewport({ scale: 2.5 }); // High scale for clear text
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
@@ -289,7 +309,7 @@ export default function App() {
           if (ctx) {
              const renderContext = { canvasContext: ctx, viewport: viewport };
              await page.render(renderContext).promise;
-             const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+             const imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
              
              setExtractionStatus(`AI Connected! Streaming Page ${i} of ${numPages}...`);
              

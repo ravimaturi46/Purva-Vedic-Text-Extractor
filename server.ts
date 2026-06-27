@@ -67,7 +67,7 @@ async function startServer() {
         base64Data = fileData.split('base64,')[1];
       }
 
-      const promptString = `Extract all text from the provided document. The document may be in languages such as ${languages.join(', ')}. Preserve paragraph formatting, line breaks, and structure where possible. Please format the output using simple HTML tags like <p>, <br/>, <h4> for headers if any. Only output the HTML, do not wrap it in markdown code blocks.`;
+      const promptString = `Extract all text from the provided document image accurately. The document may contain complex, historical, handwritten, or difficult non-OCR compatible text in languages such as ${languages.join(', ')}. Preserve paragraph formatting, line breaks, and structure where possible. Please format the output using simple HTML tags like <p>, <br/>, <h4> for headers if any. Only output the HTML, do not wrap it in markdown code blocks. Pay close attention to degraded text, unique scripts, and formatting.`;
 
       const documentPart = {
         inlineData: {
